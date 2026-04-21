@@ -9,7 +9,7 @@ description: Parses Piping and Instrumentation Diagrams (P&IDs) to extract equip
 
 ## Overview
 
-Process engineering relies heavily on P&IDs to document how pipelines, equipment, instrumentation, and control systems interact. This skill enables the AI to read these schematics, decode the standard identification codes based on the standard document provided in assets: [ANSI/ISA-5.1-1984 (R1992)](file:///Users/sinanek/Documents/code/pandid/pid-parsing-extraction/assets/ANSI%20ISA%20-%20Instrumentation%20Symbols%20And%20Ident.%20(1992)%20WW.pdf), and map the physical and electrical topologies into a structured graph format (JSON) that can be ingested into a graph database (e.g., Neo4j) or a relational database.
+Process engineering relies heavily on P&IDs to document how pipelines, equipment, instrumentation, and control systems interact. This skill enables the AI to read these schematics, decode the standard identification codes, and map the physical and electrical topologies into a structured graph format (JSON) that can be ingested into a graph database (e.g., BigQuery,Neo4j) or a relational database.
 
 ## When to Use
 
@@ -32,6 +32,10 @@ Process equipment and instruments are identified by standard codes (e.g., `TT-01
 - **First Letter:** The measured/controlled parameter (e.g., `T` = Temperature, `F` = Flow, `P` = Pressure, `L` = Level).
 - **Subsequent Letters:** The type of device/function (e.g., `T` = Transmitter, `V` = Valve, `C` = Controller, `I` = Indicator).
 - **Numbers:** The logical numerator or control loop ID (e.g., `01`, `105`).
+
+**Fallback for Non-Tagged Items:** If an item does not have a standard ISA tag, use the text label associated with it on the diagram as its ID (e.g., `66KL21`). Do not add prefixes or suffixes like 'Valve_' or size unless they are part of the label. This ensures consistency and avoids creating overly long IDs.
+
+**Manual Valves and In-Line Components:** Manual valves, strainers, and reducers often have labels like `66KL21` or `73KH12` instead of standard tags. Ensure you extract them as distinct nodes, even if they don't have a circle or square enclosure. Look for text labels near the valve/component symbols.
 
 ### 3. Determine Physical Location from Symbol Enclosures
 The visual enclosure of an instrument tag dictates its location in the plant:
@@ -141,7 +145,7 @@ When instructed to parse a P&ID, produce two separate JSON outputs: one for Node
 
 ## Domain-Specific Guidance Dictionary
 
-Use the following lookup table to resolve common abbreviations found in P&IDs. For symbols and codes not listed here, refer to the full standard in the assets directory: [ANSI/ISA-5.1-1984 (R1992)](file:///Users/sinanek/Documents/code/pandid/pid-parsing-extraction/assets/ANSI%20ISA%20-%20Instrumentation%20Symbols%20And%20Ident.%20(1992)%20WW.pdf)
+Use the following lookup table to resolve common abbreviations found in P&IDs. 
 
 **First Letter (Parameter):**
 *   **F**: Flow
@@ -149,6 +153,7 @@ Use the following lookup table to resolve common abbreviations found in P&IDs. F
 *   **P**: Pressure
 *   **L**: Level
 *   **V**: Vibration
+*   **H**: Hand (Manual operation)
 
 **Subsequent Letters (Function):**
 *   **T**: Transmitter (Sends a signal)
@@ -156,6 +161,7 @@ Use the following lookup table to resolve common abbreviations found in P&IDs. F
 *   **C**: Controller (Processes signal and dictates action)
 *   **I**: Indicator (Local gauge/readout)
 *   **E**: Element (Primary sensor)
+*   **S**: Switch (Changes state)
 
 **Line Styles:**
 *   **Solid thick/thin line:** `Piping` (Process connection)

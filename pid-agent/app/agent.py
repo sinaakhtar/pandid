@@ -254,7 +254,7 @@ zoomer_agent = LlmAgent(
     name="zoomer_agent",
     model=Gemini(
         model=AGENT_MODEL,
-        retry_options=types.HttpRetryOptions(attempts=3),
+        retry_options=types.HttpRetryOptions(attempts=10, initial_delay=2.0),
     ),
     code_executor=BuiltInCodeExecutor(),
     instruction=(
@@ -274,11 +274,13 @@ extractor_agent = LlmAgent(
     name="extractor_agent",
     model=Gemini(
         model=AGENT_MODEL,
-        retry_options=types.HttpRetryOptions(attempts=3),
+        retry_options=types.HttpRetryOptions(attempts=3, initial_delay=2.0),
     ),
     instruction=(
         "You are a specialized agent for parsing and extracting information from P&IDs. "
         "Use the provided skill to extract nodes and edges from the provided image/PDF. "
+        "CRITICAL: For items without a standard ISA tag, use the exact text label found near the symbol on the diagram as the node ID. Do not invent descriptive IDs. "
+        "CRITICAL: Ensure your JSON output is concise. Do not include large amounts of text in descriptions to avoid exceeding buffer limits. "
         "If you need to zoom in on a specific region to accurately find information, "
         "delegate that task to the `zoomer_agent` by providing the file path and coordinates. "
         "The `zoomer_agent` will return a file path to the cropped image. "
@@ -297,7 +299,7 @@ reviewer_agent = LlmAgent(
     name="reviewer_agent",
     model=Gemini(
         model=AGENT_MODEL,
-        retry_options=types.HttpRetryOptions(attempts=3),
+        retry_options=types.HttpRetryOptions(attempts=10, initial_delay=2.0),
     ),
     instruction=(
         "You are a meticulous reviewer of P&ID extractions. "
@@ -323,7 +325,7 @@ root_agent = Agent(
     name="root_agent",
     model=Gemini(
         model=AGENT_MODEL,
-        retry_options=types.HttpRetryOptions(attempts=3),
+        retry_options=types.HttpRetryOptions(attempts=10, initial_delay=2.0),
     ),
     instruction=(
         "You are a helpful AI assistant designed to analyze P&IDs. "
