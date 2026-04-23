@@ -6,6 +6,13 @@ This document describes the architecture and flow of the P&ID Analysis Agent.
 
 The P&ID Analysis system uses a multi-agent architecture to handle complex parsing, verification, and visual analysis of Piping and Instrumentation Diagrams (P&IDs). It is built using the ADK (Agent Development Kit) framework.
 
+## Technology Used
+
+- **Agent Development Kit (ADK):** Used for building and orchestrating the multi-agent system.
+- **BigQuery:** Used for storing the extracted P&ID data (nodes and edges) with schema enforcement and deduplication.
+- **Antigravity:** Most of the code in this project was generated using Antigravity.
+- **Gemini:** The underlying LLM used for agent reasoning and extraction.
+
 ## Agent Hierarchy
 
 The system consists of a root agent and a set of specialized sub-agents organized in a refinement loop.
