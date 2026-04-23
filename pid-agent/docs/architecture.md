@@ -13,7 +13,7 @@ The system consists of a root agent and a set of specialized sub-agents organize
 ```mermaid
 graph TD
     User([User]) -->|Provides P&ID| Root[Root Agent]
-    Root -->|Starts| Loop[Refinement Loop (LoopAgent)]
+    Root -->|Starts| Loop["Refinement Loop (LoopAgent)"]
     
     subgraph Loop [Refinement Loop]
         Extractor[Extractor Agent]
