@@ -12,21 +12,21 @@ The system consists of a root agent and a set of specialized sub-agents organize
 
 ```mermaid
 graph TD
-    User([User]) -->|Provides P&ID| Root[Root Agent]
-    Root -->|Starts| Loop["Refinement Loop (LoopAgent)"]
+    User([User]) -->|"Provides P&ID"| Root[Root Agent]
+    Root -->|"Starts"| Loop["Refinement Loop (LoopAgent)"]
     
-    subgraph Loop [Refinement Loop]
+    subgraph Loop ["Refinement Loop"]
         Extractor[Extractor Agent]
         Zoomer[Zoomer Agent]
         Reviewer[Reviewer Agent]
         
-        Extractor -->|Request Zoom| Zoomer
-        Zoomer -->|Return Cropped Image| Extractor
-        Extractor -->|Send JSON| Reviewer
-        Reviewer -->|Feedback (Invalid)| Extractor
+        Extractor -->|"Request Zoom"| Zoomer
+        Zoomer -->|"Return Cropped Image"| Extractor
+        Extractor -->|"Send JSON"| Reviewer
+        Reviewer -->|"Feedback (Invalid)"| Extractor
     end
     
-    Reviewer -->|Valid & Loaded| BQ[(BigQuery)]
+    Reviewer -->|"Valid & Loaded"| BQ[(BigQuery)]
     
     style Loop fill:#f9f,stroke:#333,stroke-width:2px
 ```
