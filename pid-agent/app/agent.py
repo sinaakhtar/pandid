@@ -18,6 +18,7 @@ import json
 import os
 import pathlib
 from zoneinfo import ZoneInfo
+import tempfile # Import tempfile
 
 import google.auth
 from google.adk.agents import Agent, LoopAgent, LlmAgent
@@ -43,6 +44,10 @@ os.environ["GOOGLE_CLOUD_LOCATION"] = "global"
 os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "True"
 
 AGENT_MODEL = os.environ.get("AGENT_MODEL", "gemini-3-flash-preview")
+
+# Create a secure temporary directory for artifacts
+ARTIFACT_TEMP_DIR = tempfile.mkdtemp()
+print(f"Using temporary directory for artifacts: {ARTIFACT_TEMP_DIR}")
 
 
 def ensure_tables_exist():
@@ -213,12 +218,16 @@ def load_to_bigquery(nodes_json: str, edges_json: str) -> str:
 
 async def save_file_as_artifact(filepath: str, artifact_name: str, context: ToolContext) -> str:
     """Reads a local file and saves it as an ADK artifact.
-    
     Args:
         filepath: Path to the local file.
         artifact_name: Name to give to the artifact.
     """
     try:
+        # Ensure the filepath is within the allowed temporary directory
+        absolute_filepath = os.path.abspath(filepath)
+        if not absolute_filepath.startswith(ARTIFACT_TEMP_DIR):
+            return f"Error: Access denied. Filepath must be within the artifact temporary directory. (Attempted to access: {filepath})"
+
         if not os.path.exists(filepath):
             return f"Error: File not found at {filepath}"
             
@@ -243,9 +252,23 @@ ensure_tables_exist()
 
 
 # Load the skill from the directory provided by the user
-skill_dir = pathlib.Path(
-    "/Users/sinanek/Documents/code/pandid/pid-parsing-extraction"
-)
+# Modified to be relative to the current working directory of agent.py
+# Or, can be loaded from an environment variable
+# For this example, assuming 'pid-parsing-extraction' is a sibling directory to 'pid-agent'
+skill_dir = pathlib.Path(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'pid-parsing-extraction'))
+if not skill_dir.exists():
+    # Fallback to current directory if not found (e.g., when run from root)
+    skill_dir = pathlib.Path("./pid-parsing-extraction")
+    if not skill_dir.exists():
+        print(f"Warning: pid-parsing-extraction skill directory not found at {skill_dir.absolute()}. Attempting relative path from script location.")
+        # Another attempt: relative to the script's directory if the agent is run from a different CWD
+        script_dir = pathlib.Path(__file__).parent
+        skill_dir = script_dir.parent.parent / "pid-parsing-extraction"
+        if not skill_dir.exists():
+             print(f"Error: pid-parsing-extraction skill directory not found even with multiple attempts. Please ensure it's accessible or set an environment variable.")
+             # Optionally, raise an error or handle gracefully if the skill is critical
+             # For now, let's proceed and the load_skill_from_dir will likely fail.
+
 pid_skill = load_skill_from_dir(skill_dir)
 pid_skill_toolset = skill_toolset.SkillToolset(skills=[pid_skill])
 
@@ -264,7 +287,9 @@ zoomer_agent = LlmAgent(
         "You have access to `PIL` (Pillow) and `fitz` (PyMuPDF) libraries. "
         "If the file is a PDF, use `fitz` to extract the region and save it as an image. "
         "If the file is an image, use `PIL` to crop it. "
-        "Save the resulting cropped image to a file and return the file path as your final answer."
+        "Save the resulting cropped image to a file and return the file path as your final answer. "
+        f"IMPORTANT: All generated files MUST be saved into the temporary directory: {ARTIFACT_TEMP_DIR}. "
+        "For example, use `os.path.join(\"{ARTIFACT_TEMP_DIR}\", \"cropped_image.png\")."
     ),
     description="Executes Python code to crop and zoom in on parts of P&IDs.",
 )
