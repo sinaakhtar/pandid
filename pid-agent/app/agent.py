@@ -44,22 +44,23 @@ os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "True"
 
 AGENT_MODEL = os.environ.get("AGENT_MODEL", "gemini-3-flash-preview")
 
+# Initialize BigQuery client once
+bigquery_client = bigquery.Client()
 
 def ensure_tables_exist():
     """Ensures that the necessary BigQuery tables exist with constraints."""
     try:
-        client = bigquery.Client()
         dataset_id = os.environ.get("BIGQUERY_DATASET_ID", "pandid")
         project_id = os.environ.get("GOOGLE_CLOUD_PROJECT", "donuts-dev")
 
-        dataset_ref = client.dataset(dataset_id, project=project_id)
+        dataset_ref = bigquery_client.dataset(dataset_id, project=project_id)
 
         # Create dataset if not exists
         try:
-            client.get_dataset(dataset_ref)
+            bigquery_client.get_dataset(dataset_ref)
         except Exception:
             print(f"Creating dataset {dataset_id}...")
-            client.create_dataset(dataset_ref)
+            bigquery_client.create_dataset(dataset_ref)
 
         nodes_table_id = f"{project_id}.{dataset_id}.nodes"
         edges_table_id = f"{project_id}.{dataset_id}.edges"
@@ -95,8 +96,8 @@ def ensure_tables_exist():
         """
 
         print("Ensuring tables exist with constraints...")
-        client.query(nodes_ddl).result()
-        client.query(edges_ddl).result()
+        bigquery_client.query(nodes_ddl).result()
+        bigquery_client.query(edges_ddl).result()
         print("Tables ensured successfully.")
 
     except Exception as e:
@@ -116,7 +117,6 @@ def load_to_bigquery(nodes_json: str, edges_json: str) -> str:
         A string confirming success or failure.
     """
     try:
-        client = bigquery.Client()
         nodes_data = json.loads(nodes_json)
         edges_data = json.loads(edges_json)
 
@@ -126,31 +126,14 @@ def load_to_bigquery(nodes_json: str, edges_json: str) -> str:
         diagram_id = nodes_data.get("diagram_id") or edges_data.get(
             "diagram_id"
         )
-
-        # Deduplicate nodes in Python
-        seen_nodes = set()
-        unique_nodes = []
+        
+        # Add diagram_id to each node and edge
         for node in nodes_data.get("nodes", []):
             node["diagram_id"] = diagram_id
-            node_id = node.get("id")
-            key = (diagram_id, node_id)
-            if key not in seen_nodes:
-                seen_nodes.add(key)
-                unique_nodes.append(node)
-
-        # Deduplicate edges in Python
-        seen_edges = set()
-        unique_edges = []
         for edge in edges_data.get("edges", []):
             edge["diagram_id"] = diagram_id
-            src = edge.get("source_id")
-            tgt = edge.get("target_id")
-            key = (diagram_id, src, tgt)
-            if key not in seen_edges:
-                seen_edges.add(key)
-                unique_edges.append(edge)
 
-        if unique_nodes:
+        if nodes_data.get("nodes"):
             nodes_table_id = f"{project_id}.{dataset_id}.nodes"
             # Use MERGE to avoid duplicates
             nodes_merge_query = f"""
@@ -174,12 +157,12 @@ def load_to_bigquery(nodes_json: str, edges_json: str) -> str:
             """
             job_config = bigquery.QueryJobConfig(
                 query_parameters=[
-                    bigquery.ScalarQueryParameter("json_data", "STRING", json.dumps(unique_nodes))
+                    bigquery.ScalarQueryParameter("json_data", "STRING", json.dumps(nodes_data.get("nodes", [])))
                 ]
             )
-            client.query(nodes_merge_query, job_config=job_config).result()
+            bigquery_client.query(nodes_merge_query, job_config=job_config).result()
 
-        if unique_edges:
+        if edges_data.get("edges"):
             edges_table_id = f"{project_id}.{dataset_id}.edges"
             # Use MERGE to avoid duplicates
             edges_merge_query = f"""
@@ -201,10 +184,10 @@ def load_to_bigquery(nodes_json: str, edges_json: str) -> str:
             """
             job_config = bigquery.QueryJobConfig(
                 query_parameters=[
-                    bigquery.ScalarQueryParameter("json_data", "STRING", json.dumps(unique_edges))
+                    bigquery.ScalarQueryParameter("json_data", "STRING", json.dumps(edges_data.get("edges", [])))
                 ]
             )
-            client.query(edges_merge_query, job_config=job_config).result()
+            bigquery_client.query(edges_merge_query, job_config=job_config).result()
 
         return f"Successfully processed nodes and edges for diagram {diagram_id} in BigQuery."
     except Exception as e:
