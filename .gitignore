@@ -1,3 +1,7 @@
 .DS_Store
 pid-agent/.adk/
 pid-agent/scratch/
+
+# Exclude local debug artifacts & PDF replicas
+artifacts/
+pid-agent/artifacts/

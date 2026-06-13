@@ -205,3 +205,6 @@ tools/a2a-inspector/
 .adk/
 scratch/
 
+# Exclude evaluation run traces, PDF drawings, and HTML reports
+artifacts/
+

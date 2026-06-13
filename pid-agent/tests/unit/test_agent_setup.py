@@ -34,3 +34,11 @@ def test_validate_dataset_id_invalid():
     with pytest.raises(ValueError, match="at most 1024 characters"):
         validate_dataset_id("a" * 1025)  # too long
 
+
+def test_extraction_result_has_session_id():
+    from app.agent import ExtractionResult
+    res = ExtractionResult(diagram_id="test_diag", nodes=[], edges=[])
+    assert res.session_id is None
+    res.session_id = "test_session_123"
+    assert res.session_id == "test_session_123"
+

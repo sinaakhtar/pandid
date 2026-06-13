@@ -142,7 +142,7 @@ Once you are happy with the agent's local behavior, you can deploy it to the clo
 3.  **Deploy:**
     Trigger the deployment pipeline with a single command:
     ```bash
-    agents-cli deploy
+    agents-cli deploy -i
     ```
     The CLI will provision any necessary resources and host your agent securely on Google Cloud!
 

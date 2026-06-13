@@ -1,5 +1,9 @@
 metrics_to_run:
   - custom_response_quality
+  - graph_extraction_accuracy
+  - multi_turn_trajectory_quality
+  - multi_turn_tool_use_quality
+  - collab_loop_trajectory_correctness
 
 custom_metrics:
   - name: custom_response_quality
@@ -28,3 +32,281 @@ custom_metrics:
       def evaluate(instance):
           turns = (instance.get("agent_data") or {}).get("turns", [])
           return {'score': len(turns)}
+
+  - name: graph_extraction_accuracy
+    custom_function: |
+      def evaluate(instance):
+          import json
+          import re
+
+          eval_case_id = instance.get("eval_case_id")
+          if eval_case_id == "greeting":
+              return {
+                  "score": 1.0,
+                  "explanation": "Greeting case does not require graph extraction and is auto-graded as 1.0."
+              }
+
+          ref_str = instance.get("golden_graph") or instance.get("reference")
+          if not ref_str:
+              return {
+                  "score": 0.0,
+                  "explanation": "No golden_graph or reference data found in instance."
+              }
+
+          if isinstance(ref_str, dict):
+              ref_data = ref_str
+          elif isinstance(ref_str, str):
+              try:
+                  ref_data = json.loads(ref_str)
+              except Exception as e:
+                  return {
+                      "score": 0.0,
+                      "explanation": f"Failed to parse reference JSON: {e}"
+                  }
+          else:
+              return {
+                  "score": 0.0,
+                  "explanation": f"Unsupported reference data type: {type(ref_str)}"
+              }
+
+          # Look for the extracted graph in the trace or response
+          extracted_graph = None
+          turns = (instance.get("agent_data") or {}).get("turns", [])
+
+          # 1. Look in load_to_bigquery tool calls
+          for turn in turns:
+              for event in turn.get("events", []):
+                  for part in (event.get("content") or {}).get("parts", []):
+                      func_call = part.get("function_call") or {}
+                      if func_call.get("name") == "load_to_bigquery":
+                          args = func_call.get("args") or {}
+                          nodes_str = args.get("nodes_json")
+                          edges_str = args.get("edges_json")
+                          if nodes_str and edges_str:
+                              try:
+                                  nodes = json.loads(nodes_str)
+                                  edges = json.loads(edges_str)
+                                  nodes_list = nodes.get("nodes", []) if isinstance(nodes, dict) else nodes
+                                  edges_list = edges.get("edges", []) if isinstance(edges, dict) else edges
+                                  extracted_graph = {"nodes": nodes_list, "edges": edges_list}
+                                  break
+                              except Exception:
+                                  pass
+              if extracted_graph:
+                  break
+
+          # 2. Look in response or event text parts
+          if not extracted_graph:
+              all_texts = []
+              response = instance.get("response") or {}
+              for part in response.get("parts", []):
+                  if "text" in part:
+                      all_texts.append(part["text"])
+
+              for turn in reversed(turns):
+                  for event in reversed(turn.get("events", [])):
+                      for part in (event.get("content") or {}).get("parts", []):
+                          if "text" in part:
+                              all_texts.append(part["text"])
+
+              for text in all_texts:
+                  # Code blocks
+                  blocks = re.findall(r"```json\s*(.*?)\s*```", text, re.DOTALL)
+                  for block in blocks:
+                      try:
+                          data = json.loads(block)
+                          if isinstance(data, dict) and ("nodes" in data or "edges" in data):
+                              extracted_graph = {
+                                  "nodes": data.get("nodes", []),
+                                  "edges": data.get("edges", [])
+                              }
+                              break
+                      except Exception:
+                          pass
+                  if extracted_graph:
+                      break
+
+                  # Whole text
+                  try:
+                      data = json.loads(text.strip())
+                      if isinstance(data, dict) and ("nodes" in data or "edges" in data):
+                          extracted_graph = {
+                              "nodes": data.get("nodes", []),
+                              "edges": data.get("edges", [])
+                          }
+                          break
+                  except Exception:
+                      pass
+
+                  # Partial braces
+                  braces = re.findall(r"(\{.*?\})", text, re.DOTALL)
+                  for brace in braces:
+                      try:
+                          data = json.loads(brace)
+                          if isinstance(data, dict) and ("nodes" in data or "edges" in data):
+                              extracted_graph = {
+                                  "nodes": data.get("nodes", []),
+                                  "edges": data.get("edges", [])
+                              }
+                              break
+                      except Exception:
+                          pass
+                  if extracted_graph:
+                      break
+
+          if not extracted_graph:
+              return {
+                  "score": 0.0,
+                  "explanation": "Could not extract or find a nodes/edges graph from the agent trace/response."
+              }
+
+          # Comparison logic
+          ref_nodes = ref_data.get("nodes", [])
+          pred_nodes = extracted_graph.get("nodes", [])
+
+          def get_node_key(node):
+              node_id = str(node.get("id") or "").strip().upper()
+              category = str(node.get("category") or "").strip().upper()
+              return (node_id, category)
+
+          ref_node_keys = {get_node_key(n) for n in ref_nodes if n.get("id")}
+          pred_node_keys = {get_node_key(n) for n in pred_nodes if n.get("id")}
+
+          if not ref_node_keys:
+              node_precision = 1.0 if not pred_node_keys else 0.0
+              node_recall = 1.0
+              node_f1 = 1.0 if not pred_node_keys else 0.0
+          else:
+              if not pred_node_keys:
+                  node_precision = 0.0
+                  node_recall = 0.0
+                  node_f1 = 0.0
+              else:
+                  true_positives = len(ref_node_keys.intersection(pred_node_keys))
+                  node_precision = true_positives / len(pred_node_keys)
+                  node_recall = true_positives / len(ref_node_keys)
+                  if node_precision + node_recall > 0:
+                      node_f1 = 2 * (node_precision * node_recall) / (node_precision + node_recall)
+                  else:
+                      node_f1 = 0.0
+
+          ref_edges = ref_data.get("edges", [])
+          pred_edges = extracted_graph.get("edges", [])
+
+          def get_edge_key(edge):
+              src = str(edge.get("source_id") or "").strip().upper()
+              tgt = str(edge.get("target_id") or "").strip().upper()
+              medium = str(edge.get("medium") or "").strip().upper()
+              return (frozenset([src, tgt]), medium)
+
+          ref_edge_keys = {get_edge_key(e) for e in ref_edges if e.get("source_id") and e.get("target_id")}
+          pred_edge_keys = {get_edge_key(e) for e in pred_edges if e.get("source_id") and e.get("target_id")}
+
+          if not ref_edge_keys:
+              edge_precision = 1.0 if not pred_edge_keys else 0.0
+              edge_recall = 1.0
+              edge_f1 = 1.0 if not pred_edge_keys else 0.0
+          else:
+              if not pred_edge_keys:
+                  edge_precision = 0.0
+                  edge_recall = 0.0
+                  edge_f1 = 0.0
+              else:
+                  true_pos_edges = len(ref_edge_keys.intersection(pred_edge_keys))
+                  edge_precision = true_pos_edges / len(pred_edge_keys)
+                  edge_recall = true_pos_edges / len(ref_edge_keys)
+                  if edge_precision + edge_recall > 0:
+                      edge_f1 = 2 * (edge_precision * edge_recall) / (edge_precision + edge_recall)
+                  else:
+                      edge_f1 = 0.0
+
+          combined_score = 0.5 * node_f1 + 0.5 * edge_f1
+
+          explanation = (
+              f"Graph extraction performance: Combined F1={combined_score:.4f}.\n"
+              f"Nodes (F1={node_f1:.4f}, Prec={node_precision:.4f}, Rec={node_recall:.4f}):\n"
+              f"  - Extracted {len(pred_node_keys)} unique nodes. Expected {len(ref_node_keys)}.\n"
+              f"  - Matched nodes: {sorted(list(ref_node_keys.intersection(pred_node_keys)))}\n"
+              f"  - Missing nodes: {sorted(list(ref_node_keys - pred_node_keys))}\n"
+              f"  - Extra nodes: {sorted(list(pred_node_keys - ref_node_keys))}\n"
+              f"Edges (F1={edge_f1:.4f}, Prec={edge_precision:.4f}, Rec={edge_recall:.4f}):\n"
+              f"  - Extracted {len(pred_edge_keys)} unique edges. Expected {len(ref_edge_keys)}.\n"
+              f"  - Matched edges: {[{'pair': list(item[0]), 'medium': item[1]} for item in ref_edge_keys.intersection(pred_edge_keys)]}\n"
+              f"  - Missing edges: {[{'pair': list(item[0]), 'medium': item[1]} for item in ref_edge_keys - pred_edge_keys]}\n"
+              f"  - Extra edges: {[{'pair': list(item[0]), 'medium': item[1]} for item in pred_edge_keys - ref_edge_keys]}"
+          )
+
+          return {
+              "score": combined_score,
+              "explanation": explanation
+          }
+
+  - name: collab_loop_trajectory_correctness
+    custom_function: |
+      def evaluate(instance):
+          turns = (instance.get("agent_data") or {}).get("turns", [])
+          eval_case_id = instance.get("eval_case_id")
+          if eval_case_id == "greeting":
+              return {
+                  "score": 1.0,
+                  "explanation": "Greeting case does not require collaboration loop."
+              }
+          
+          # Trace the sequence of active agents in order of their events
+          agent_sequence = []
+          has_extractor = False
+          has_reviewer = False
+          
+          for turn in turns:
+              for event in turn.get("events", []):
+                  author = event.get("author") or {}
+                  role = author.get("role") if isinstance(author, dict) else str(author)
+                  
+                  # Record the agent sequence
+                  if "extractor_agent" in role or role == "extractor_agent":
+                      has_extractor = True
+                      if not agent_sequence or agent_sequence[-1] != "extractor_agent":
+                          agent_sequence.append("extractor_agent")
+                  elif "reviewer_agent" in role or role == "reviewer_agent":
+                      has_reviewer = True
+                      if not agent_sequence or agent_sequence[-1] != "reviewer_agent":
+                          agent_sequence.append("reviewer_agent")
+                          
+          # At minimum, extractor_agent must run, then reviewer_agent must run
+          if not has_extractor:
+              return {
+                  "score": 0.0,
+                  "explanation": "Failed: extractor_agent never ran in the trace. agent_sequence=" + str(agent_sequence)
+              }
+          if not has_reviewer:
+              return {
+                  "score": 0.0,
+                  "explanation": "Failed: reviewer_agent never ran in the trace. agent_sequence=" + str(agent_sequence)
+              }
+              
+          # Verify extractor ran before reviewer
+          try:
+              ext_idx = agent_sequence.index("extractor_agent")
+              rev_idx = agent_sequence.index("reviewer_agent")
+              if ext_idx > rev_idx:
+                  return {
+                      "score": 0.0,
+                      "explanation": f"Failed: reviewer_agent ran before extractor_agent completed its initial work. agent_sequence={agent_sequence}"
+                  }
+          except ValueError as e:
+              return {
+                  "score": 0.0,
+                  "explanation": f"Failed to trace agent sequence index: {e}. agent_sequence={agent_sequence}"
+              }
+              
+          # All checks passed!
+          explanation = (
+              f"Success: Collaborative trajectory followed. "
+              f"Agent sequence: {' -> '.join(agent_sequence)}. "
+              f"Successfully verified collaboration between extractor and reviewer in ADK 2.0 refinement loop."
+          )
+          return {
+              "score": 1.0,
+              "explanation": explanation
+          }
+

@@ -1,14 +1,13 @@
-name: "pid-agent"
-acli_version: "0.3.0"
-agent_directory: "app"
-region: "europe-west1"
-base_template: "adk"
-generated_at: "2026-04-20T19:53:42.539866+00:00"
-language: "python"
+name: pid-agent
+acli_version: 0.3.0
+agent_directory: app
+region: europe-west1
+base_template: adk
+generated_at: '2026-04-20T19:53:42.539866+00:00'
+language: python
 create_params:
-  deployment_target: "none"
-  session_type: "in_memory"
-  cicd_runner: "skip"
+  deployment_target: agent_runtime
+  cicd_runner: skip
   include_data_ingestion: false
-  datastore: "none"
-  agent_guidance_filename: "GEMINI.md"
+  datastore: none
+  agent_guidance_filename: GEMINI.md

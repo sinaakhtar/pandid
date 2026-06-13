@@ -1,6 +1,9 @@
 ---
 name: pid-parsing-extraction
 description: Parses Piping and Instrumentation Diagrams (P&IDs) to extract equipment, instruments, and connections into a structured node-and-edge format suitable for database ingestion and graph querying. Use when digitizing P&IDs, mapping process flows, or generating digital twins from schematic data.
+metadata:
+  adk_additional_tools:
+    - save_file_as_artifact
 ---
 
 # P&ID Parsing and Extraction
